@@ -46,20 +46,20 @@ const result = spawnSync(process.execPath, [pnpm, 'add', '--offline', '--ignore-
 if (result.error) throw result.error;
 assert.equal(result.status, 0, 'isolated offline installation succeeds');
 await writeFile(path.join(out, 'smoke.mjs'), `import assert from 'node:assert/strict';
-import * as plugin from '@local/dsh-rollback';
+import * as plugin from '@guiheng123/dsh-rollback';
 import { z } from 'zod';
 import fs from 'node:fs/promises';
 assert.equal(typeof plugin.apply, 'function');
 assert.ok(plugin.inject.includes('fs') && plugin.inject.includes('connection'));
 assert.equal(z.string().parse('ready'), 'ready');
-const client = await fs.readFile(new URL('./node_modules/@local/dsh-rollback/client.js', import.meta.url), 'utf8');
+const client = await fs.readFile(new URL('./node_modules/@guiheng123/dsh-rollback/client.js', import.meta.url), 'utf8');
 assert.ok(client.includes('window.__ModuleLoader__.load'));
 assert.ok(client.includes('plugins.bundle.config'));
 console.log('Isolated release import passed; plugin apply was NOT called.');\n`);
 // The direct zod import belongs to the installed plugin, not the test root. Resolve
 // it via the plugin's package context, preserving pnpm's strict dependency layout.
 let script = await readFile(path.join(out, 'smoke.mjs'), 'utf8');
-script = script.replace("import { z } from 'zod';", "import { createRequire } from 'node:module'; const require = createRequire(import.meta.resolve('@local/dsh-rollback')); const { z } = require('zod');");
+script = script.replace("import { z } from 'zod';", "import { createRequire } from 'node:module'; const require = createRequire(import.meta.resolve('@guiheng123/dsh-rollback')); const { z } = require('zod');");
 await writeFile(path.join(out, 'smoke.mjs'), script);
 const imported = spawnSync(process.execPath, [path.join(out, 'smoke.mjs')], { cwd: out, stdio: 'inherit' });
 if (imported.error) throw imported.error;
