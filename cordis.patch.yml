@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-rollback
+      name: '@guiheng123/dsh-rollback'
+      # Safe defaults live in the plugin; this entry only loads it.
+      config: {}
