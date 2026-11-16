@@ -22,15 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
@@ -54,11 +52,13 @@ jobs:
         run: pnpm run check && pnpm test
 
       - name: Publish package
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            pnpm publish --access public --no-git-checks --provenance --dry-run
-          else
-            pnpm publish --access public --no-git-checks --provenance
-          fi
+        if: github.event_name == 'release' || inputs.dry_run != true
+        run: pnpm publish --access public --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish package (dry run)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        run: pnpm publish --access public --no-git-checks --provenance --dry-run
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
