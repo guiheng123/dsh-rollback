@@ -1,11 +1,10 @@
-// Verify the packed artifact registers exactly the package name. The Client loader
-// keys factories by this id, so a mismatch fails the entire Client half with
-// "loaded without registering ... via __ModuleLoader__.load".
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
-const tarball = process.argv[2] || 'releases/guiheng123-dsh-rollback-1.3.2.tgz';
-const tar = gunzipSync(await readFile(tarball));
+const root = new URL('..', import.meta.url);
+const rootManifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8'));
+const tarball = process.argv[2] || `releases/${rootManifest.name.replace(/^@/, '').replace('/', '-')}-${rootManifest.version}.tgz`;
+const tar = gunzipSync(await readFile(new URL(tarball, root)));
 const files = new Map();
 for (let cursor = 0; cursor + 512 <= tar.length;) {
   const header = tar.subarray(cursor, cursor + 512); cursor += 512;
