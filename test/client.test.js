@@ -7,7 +7,7 @@ import vm from 'node:vm';
 // Fetch deliberately ignores abort so the response-generation check is tested too.
 async function fixture({ status = { ok: true }, activeLocale = null, deferStatus = false } = {}) {
   const code = await readFile(new URL('../client.js', import.meta.url), 'utf8');
-  const slots = new Map(), requests = [], statusRequests = [];
+  const slots = new Map(), requests = [], statusRequests = [], openedSessions = [], loadedSequences = [];
   let statusReply = status;
   let hooks = [], effects = [];
   let cursor = 0, dirty = false, tree, definition, Dialog, props;
@@ -27,6 +27,7 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
     setInterval: () => 1, clearInterval: () => {},
     fetch(url, options) {
       const action = url.searchParams.get('action');
+      if (action === 'turns') return Promise.resolve({ ok: true, json: async () => ({ ok: true, turns: [{ turn: 42, fileCount: 1 }] }) });
       if (action === 'status') {
         if (deferStatus) return new Promise((resolve, reject) => statusRequests.push({ url, signal: options.signal, resolve: data => resolve({ ok: true, json: async () => data }), reject }));
         statusRequests.push({ url, signal: options.signal });
@@ -37,7 +38,7 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
   };
   vm.runInNewContext(code, context);
   definition.factory(() => React).apply({
-    get: () => undefined,
+    get: name => name === 'uiWorkspace' ? { openSession: async id => { openedSessions.push(id); } } : name === 'sessions' ? { using: async (_id, _options, operation) => operation({ ready: Promise.resolve({ session: { loadThrough: async seq => { loadedSequences.push(seq); } } }) }) } : undefined,
     locale: { bind: () => key => key, subscribe: () => () => {}, getSnapshot: () => activeLocale ? { active: activeLocale } : null, register: () => () => {} },
     effect: fn => fn(),
     slots: { inject: (_key, fn) => fn(), register: (spec, component) => slots.set(spec.name, component) },
@@ -62,18 +63,7 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
   }
   async function settle() { await new Promise(resolve => setImmediate(resolve)); render(); }
   render();
-  // Render one turnTail entry through its own throwaway hook scope, without disturbing
-  // the dialog's persisted hooks: swap in a fresh array for the duration.
-  function renderTurn(props) {
-    const saved = { hooks, effects };
-    const localHooks = [], localEffects = [];
-    hooks = localHooks; effects = localEffects; cursor = 0;
-    let entry;
-    try { entry = slots.get('conversation.chat.turnTail')(props); }
-    finally { while (effects.length) effects.shift()(); hooks = saved.hooks; effects = saved.effects; }
-    return { entry, flush() { cursor = 0; while (effects.length) effects.shift()(); } };
-  }
-  return { slots, requests, statusRequests, setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, renderTurn, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
+  return { slots, requests, statusRequests, openedSessions, loadedSequences, setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
 }
 const response = (id, nextOffset = 100) => ({ ok: true, records: [{ id, turn: 1, files: [], createdAt: 0 }], total: nextOffset === null ? 1 : 201, nextOffset });
 const storageStatus = (storage = {}, settings = {}) => ({
@@ -134,21 +124,11 @@ test('refresh cancels pagination and duplicate clicks submit one request', async
   f.unmount();
 });
 
-test('the turn anchor resolves by turn number and renders no rollback button', async () => {
+test('turn summary loads inside the dialog without any turn-tail registration', async () => {
   const f = await fixture();
-  // A real answered turn: the slot's `seq` is the last assistant message seq (5),
-  // while the record closes at turn/end seq (7). A seq-keyed lookup finds nothing.
-  f.renderTurn({ sessionId: 's1', turn: 2, seq: 5 });
-  await f.settle();
-  const turnRequest = f.requests.find(request => request.url.searchParams.get('action') === 'turns');
-  assert.ok(turnRequest, 'the turn anchor asks the Host for the turn summary');
-  turnRequest.resolve({ ok: true, turns: [{ turn: 2, endSeq: 7, fileCount: 3 }], truncated: false });
-  await f.settle();
-  const { entry } = f.renderTurn({ sessionId: 's1', turn: 2, seq: 5 });
-  // Only the invisible anchor remains: no "Roll back · N files" footer button.
-  assert.equal(entry.type, 'span');
-  assert.equal(entry.props.className, 'dshr-turnanchor');
-  assert.ok(!JSON.stringify(entry).includes('Roll back'), 'no rollback button is rendered below a turn');
+  f.requests[0].resolve(response('first', null)); await f.settle();
+  assert.ok(!f.slots.has('conversation.chat.turnTail'));
+  assert.ok(f.find(node => node.type === 'option' && node.props.value === '42'), 'full turn summary remains available beyond the loaded page');
   f.unmount();
 });
 
@@ -278,52 +258,41 @@ test('late status responses never overwrite quota edits in progress', async () =
 
 const sampleFile = (id, change = 'modified') => ({ id, path: `${id}.txt`, display: `${id}.txt`, change, before: { exists: change !== 'added', available: true }, after: { exists: change !== 'deleted', available: true } });
 const fileResponse = (files = [sampleFile('f1')]) => ({ ok: true, records: [{ id: 'r1', turn: 2, messageSeq: 5, createdAt: 0, files }], total: 1, nextOffset: null });
-test('the leading top-bar seat offers a resident entry that opens the current Session', async () => {
+test('title-left entry is absent and the existing session utility remains functional', async () => {
   const f = await fixture();
-  assert.ok(f.slots.has('conversation.header.leading'), 'the entry beside the sidebar must be registered');
-  // The leading seat receives no owner props at all.
-  const entry = f.slots.get('conversation.header.leading')();
+  assert.ok(!f.slots.has('conversation.header.leading'));
+  const entry = f.slots.get('conversation.session.header.utilities')({ sessionId: 's2' });
   assert.equal(entry.type, 'button');
-  assert.equal(entry.props.className, 'dshr-leadingbutton');
-  assert.ok(!JSON.stringify(entry).includes('Roll back'), 'no turn-level rollback button reappears');
-  f.requests[0].resolve(response('first', null)); await f.settle();
+  entry.props.onClick();
+  const dialog = f.slots.get('shell.overlay')().props.children.find(child => typeof child?.type === 'function');
+  assert.equal(dialog.props.sessionId, 's2');
   f.unmount();
 });
 
-test('exactly one visible entry per surface: header leading, session utilities, overlay, no footer button', async () => {
+test('only overlay, existing session utility and bundle guide are registered', async () => {
   const f = await fixture();
-  const surface = (slot, props) => { const rendered = f.slots.get(slot)(props); return JSON.stringify(rendered).split('"dshr-leadingbutton"').length - 1; };
-  // Leading seat renders one button; Session utilities render one button.
-  const leading = f.slots.get('conversation.header.leading')();
-  assert.equal(leading.type, 'button');
-  const utilities = f.slots.get('conversation.session.header.utilities')({ sessionId: 's1' });
-  assert.equal(utilities.type, 'button');
-  assert.equal(utilities.props.className, 'dshr-headerbutton');
-  // A turn renders only the invisible anchor: no leftover footer control.
-  const turn = f.slots.get('conversation.chat.turnTail')({ sessionId: 's1', turn: 2, seq: 5 });
-  assert.equal(turn.type, 'span');
-  assert.equal(turn.props.className, 'dshr-turnanchor');
-  assert.deepEqual(turn.props.children, [], 'the anchor renders no child control');
-  assert.equal(turn.props.tabIndex, -1);
-  void surface;
-  f.requests[0].resolve(response('first', null)); await f.settle();
+  assert.deepEqual([...f.slots.keys()].sort(), ['shell.overlay', 'conversation.session.header.utilities', 'plugins.bundle.config'].sort());
+  const source = await readFile(new URL('../client.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /dshr-turnanchor|dshr-leadingbutton|dshr-leadingsign|registerAnchor|pendingJump|function TurnEntry|function LeadingEntry/);
   f.unmount();
 });
 
 const action = (f, name) => f.find(node => node.props?.onClick?.name === name);
 const selectFirst = f => { f.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange(); f.render(); };
 
-test('live TurnLocation owner props keep a jump anchor without a footer rollback entry', async () => {
+test('opening related conversation still loads its session without a footer anchor', async () => {
   const f = await fixture();
-  f.renderTurn({ sessionId: 's1', turn: { turn: 2, end: { seq: 7 } }, seq: 5 });
-  await f.settle();
-  const request = f.requests.find(r => r.url.searchParams.get('action') === 'turns');
-  assert.ok(request, 'actual object-shaped owner props must still resolve the turn summary');
-  request.resolve({ ok: true, turns: [{ turn: 2, endSeq: 7, fileCount: 3 }] }); await f.settle();
-  const { entry } = f.renderTurn({ sessionId: 's1', turn: { turn: 2, end: { seq: 7 } }, seq: 5 });
-  assert.equal(entry.type, 'span', 'the turn contributes only an anchor');
-  assert.equal(entry.props.className, 'dshr-turnanchor');
-  assert.ok(!f.find(node => node.type === 'button', entry), 'no rollback button is rendered below a turn');
+  const data = fileResponse();
+  data.records[0].sessionId = 's1';
+  data.records[0].endSeq = 7;
+  f.requests[0].resolve(data); await f.settle();
+  const jump = f.find(node => node.props?.title === 'Open related conversation');
+  assert.ok(jump);
+  await jump.props.onClick();
+  assert.deepEqual(f.openedSessions, ['s1']);
+  assert.deepEqual(f.loadedSequences, [7]);
+  assert.equal(f.isOpen(), false);
+  assert.ok(!f.slots.has('conversation.chat.turnTail'));
   f.unmount();
 });
 
@@ -404,6 +373,9 @@ test('select all previews the whole record through the Host selector instead of 
   f.requests[0].resolve(fileResponse(Array.from({ length: 1201 }, (_, i) => sampleFile(`f${i}`)))); await f.settle();
   button(f, 'Select all').props.onClick(); f.render();
   assert.ok(JSON.stringify(f.tree()).includes('1201 selected'), 'the whole record is selected, not a truncated slice');
+  for (let i = 0; i < 1201; i++) {
+    assert.equal(f.find(node => node.type === 'input' && node.props['aria-label'] === `selected: f${i}.txt`).props.checked, true, `f${i} checkbox follows select all`);
+  }
   const pending = button(f, 'Restore selected to before').props.onClick();
   const request = f.requests.find(r => r.body?.action === 'prepare');
   assert.equal(request.body.all, true, 'whole-record selection is resolved by the Host');
@@ -413,7 +385,18 @@ test('select all previews the whole record through the Host selector instead of 
   button(f, 'Select all').props.onClick(); f.render();
   const first = f.find(node => node.type === 'input' && node.props.type === 'checkbox');
   first.props.onChange(); f.render();
-  assert.ok(JSON.stringify(f.tree()).includes('1 selected'), 'toggling a checkbox leaves the whole-record mode');
+  assert.equal(first.props.checked, true, 'select all checks every file');
+  assert.ok(JSON.stringify(f.tree()).includes('1200 selected'), 'unchecking one file preserves the other selections');
+  assert.equal(f.find(node => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
+  const subsetPending = button(f, 'Restore selected to before').props.onClick();
+  const subset = f.requests.filter(r => r.body?.action === 'prepare').at(-1);
+  assert.equal(subset.body.all, undefined);
+  assert.equal(subset.body.fileIds.length, 1200);
+  assert.ok(!subset.body.fileIds.includes('f0'));
+  subset.resolve({ ok: true, canRestore: false, files: [] }); await subsetPending; await f.settle();
+  button(f, 'Clear selection').props.onClick(); f.render();
+  assert.ok(JSON.stringify(f.tree()).includes('0 selected'));
+  assert.equal(f.find(node => node.type === 'input' && node.props.type === 'checkbox').props.checked, false);
   f.unmount();
 });
 

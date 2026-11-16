@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const h = React.createElement;
     const EN = {
-      title: 'File history & rollback', history: 'File history', turnHistory: 'History for this turn', close: 'Close',
+      title: 'File history & rollback', history: 'File history', close: 'Close',
       session: 'Session', notReady: 'Session ID is unavailable.', loading: 'Loading history...',
       loadError: 'Could not load file history.', retry: 'Retry', search: 'Filter files', allTurns: 'All turns',
       records: 'Backups', noRecords: 'No matching backups.', loadMore: 'Load more', turn: 'Turn',
@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
       optimized: 'Backup optimization finished.', migrated: 'Migrated records', pruned: 'Empty records removed', reclaimedPacks: 'Reclaimed packs', optimizeFailed: 'Could not optimize backups.',
     };
     const ZH = {
-      title: '文件历史与回滚', history: '文件历史', turnHistory: '本轮历史', close: '关闭',
+      title: '文件历史与回滚', history: '文件历史', close: '关闭',
       session: '会话', notReady: '无法获取会话 ID。', loading: '正在加载历史...',
       loadError: '无法读取文件历史。', retry: '重试', search: '筛选文件', allTurns: '全部轮次',
       records: '备份', noRecords: '没有匹配的备份。', loadMore: '加载更多', turn: '轮次',
@@ -168,23 +168,13 @@ window.__ModuleLoader__.load({
       .dshr-check{padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1);overflow-wrap:anywhere}.dshr-check:last-child{border-bottom:0}
       .dshr-error{color:var(--dsw-alias-state-error-primary);padding:10px 24px;font-size:13px;overflow-wrap:anywhere}.dshr-notice{padding:8px 24px;color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere}
       .dshr-empty{margin:auto;max-width:470px;padding:30px 20px;text-align:center}.dshr-empty h3{font-size:18px;line-height:26px;margin:12px 0 8px}.dshr-empty p{color:var(--dsw-alias-label-secondary);margin:8px 0;font-size:13px}.dshr-emptymark{display:inline-grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:27px}
-      .dshr-headerbutton{font:inherit;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:5px 10px;cursor:pointer}.dshr-turnanchor{display:inline-block;min-height:1px;min-width:1px;outline:none}.dshr-headerbutton:hover{background:var(--dsw-alias-bg-layer-2)}
-      .dshr-leadingbutton{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-primary);background:transparent;border:1px solid transparent;border-radius:7px;padding:5px 9px;cursor:pointer}
-      .dshr-leadingbutton:hover{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l1)}
-      .dshr-leadingbutton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
-      .dshr-leadingsign{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:12px;line-height:1}
-      @media(max-width:760px){.dshr-leadingbutton span+span{display:none}}
+      .dshr-headerbutton{font:inherit;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:5px 10px;cursor:pointer}.dshr-headerbutton:hover{background:var(--dsw-alias-bg-layer-2)}
       @media(max-width:760px){.dshr-backdrop{padding:8px}.dshr-dialog{max-height:calc(100dvh - 16px);height:100%;border-radius:12px}.dshr-header{padding:14px 16px;gap:8px}.dshr-header h2{font-size:17px}.dshr-intro{padding:0 16px 12px}.dshr-body{display:flex;flex-direction:column;overflow:auto}.dshr-listpane{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1);max-height:38%;flex-shrink:0}.dshr-records{max-height:160px;min-height:50px}.dshr-detailpane{overflow:visible;padding:16px;flex:1 0 auto}.dshr-controls{padding:8px 12px}.dshr-controls input{flex:1 0 40%;width:40%}.dshr-controls select{width:25%}.dshr-paneheading{padding:10px 14px 0}.dshr-detailhead{flex-direction:column;align-items:stretch;gap:8px}.dshr-detailhead .dshr-actions{margin:0}.dshr-session{display:none}.dshr-footer{padding:10px 16px;max-height:32%}.dshr-file{padding:8px}.dshr-empty{padding:18px 12px}.dshr-empty h3{font-size:16px}.dshr-notice,.dshr-error{padding:8px 16px}}
       @media(prefers-reduced-motion:reduce){.dshr-button{transition:none}.dshr-backdrop{backdrop-filter:none}}
     `;
 
     const shared = { open: false, sessionId: null, turn: null, revision: 0 };
     const listeners = new Set();
-    const anchors = new Map();
-    const turnCountCache = new Map();
-    const turnCountListeners = new Map();
-    const latestTurnSeq = new Map();
-    let pendingJump = null;
     let services = {};
     let localeSubscribe = listener => () => {};
     let localeSnapshot = () => null;
@@ -198,78 +188,12 @@ window.__ModuleLoader__.load({
     function useLocale() {
       React.useSyncExternalStore(localeSubscribe, localeSnapshot, localeSnapshot);
     }
-    function anchorKey(sessionId, endSeq) { return `${sessionId}:${endSeq}`; }
-    function subscribeTurnCounts(sessionId, listener) {
-      let listeners = turnCountListeners.get(sessionId);
-      if (!listeners) turnCountListeners.set(sessionId, listeners = new Set());
-      listeners.add(listener);
-      return () => { listeners.delete(listener); if (!listeners.size) turnCountListeners.delete(sessionId); };
-    }
-    function publishTurnCounts(sessionId, value) {
-      turnCountCache.set(sessionId, value);
-      turnCountListeners.get(sessionId)?.forEach(listener => listener());
-    }
-    // Turn rows are indexed by Turn number, not by sequence. The turnTail slot reports
-    // the closing assistant-message seq, which is NOT the turn/end seq the records key
-    // on, so a seq-keyed lookup would silently find nothing on every answered turn.
-    function ensureTurnCounts(sessionId, turn) {
-      const target = Number(turn);
-      if (!Number.isSafeInteger(target) || target < 0) return;
-      const latest = Math.max(target, latestTurnSeq.get(sessionId) ?? -1);
-      latestTurnSeq.set(sessionId, latest);
-      const current = turnCountCache.get(sessionId);
-      if (current?.status === 'loading') return;
-      if (current?.status === 'ready' && current.loadedThrough >= latest) return;
-      const requestedThrough = latest;
-      publishTurnCounts(sessionId, { status: 'loading', counts: current?.counts ?? new Map(), endSeqs: current?.endSeqs ?? new Map(), loadedThrough: current?.loadedThrough ?? -1 });
-      readApi({ action: 'turns', sessionId }).then(result => {
-        const rows = Array.isArray(result.turns) ? result.turns : [];
-        publishTurnCounts(sessionId, {
-          status: 'ready',
-          counts: new Map(rows.map(row => [Number(row.turn), Number(row.fileCount)])),
-          endSeqs: new Map(rows.filter(row => Number.isSafeInteger(row.endSeq)).map(row => [Number(row.turn), Number(row.endSeq)])),
-          truncated: Boolean(result.truncated),
-          loadedThrough: requestedThrough
-        });
-        const newest = latestTurnSeq.get(sessionId) ?? requestedThrough;
-        if (newest > requestedThrough) ensureTurnCounts(sessionId, newest);
-      }).catch(() => publishTurnCounts(sessionId, { status: 'error', counts: new Map(), endSeqs: new Map(), loadedThrough: -1 }));
-    }
-    function refreshTurnCounts(sessionId) {
-      const previous = turnCountCache.get(sessionId);
-      turnCountCache.set(sessionId, { status: 'idle', counts: previous?.counts ?? new Map(), endSeqs: previous?.endSeqs ?? new Map(), loadedThrough: -1 });
-      ensureTurnCounts(sessionId, latestTurnSeq.get(sessionId));
-    }
-    // Subscribes to the Session's turn summary so the anchor can move from the slot's
-    // fallback seq to the real turn/end seq once the summary arrives. The old badge
-    // read the file count from the same store; only the anchor needs it now.
-    function useTurnEndSeq(sessionId, turn, fallback) {
-      const subscribeForSession = React.useCallback(listener => sessionId ? subscribeTurnCounts(sessionId, listener) : () => {}, [sessionId]);
-      const getEndSeq = React.useCallback(() => turnCountCache.get(sessionId)?.endSeqs?.get(Number(turn)) ?? null, [sessionId, turn]);
-      const endSeq = React.useSyncExternalStore(subscribeForSession, getEndSeq, getEndSeq);
-      React.useEffect(() => { if (sessionId) ensureTurnCounts(sessionId, turn); }, [sessionId, turn]);
-      return endSeq ?? fallback;
-    }    function turnEndSeq(sessionId, turn) {
-      return turnCountCache.get(sessionId)?.endSeqs?.get(Number(turn)) ?? null;
-    }
-    function registerAnchor(sessionId, endSeq, node) {
-      if (!sessionId || endSeq === null || endSeq === undefined || !Number.isSafeInteger(Number(endSeq))) return;
-      const key = anchorKey(sessionId, endSeq);
-      if (!node) { anchors.delete(key); return; }
-      anchors.set(key, node);
-      if (pendingJump?.key === key) {
-        node.scrollIntoView({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-        node.focus({ preventScroll: true });
-        pendingJump = null;
-      }
-    }
     function readSessionId(props) { return props?.sessionId ?? null; }
     let currentSession = null;
     function mirrorSession(sessionId) {
       if (typeof sessionId === 'string' && sessionId && sessionId !== currentSession) currentSession = sessionId;
       return sessionId;
     }
-    function currentSessionId() { return currentSession; }
     function openHistory(sessionId, turn = null) {
       const parsedTurn = turn === null || turn === undefined || turn === '' ? null : Number(turn);
       const target = mirrorSession(sessionId) ?? currentSession;
@@ -281,26 +205,12 @@ window.__ModuleLoader__.load({
       const seq = Number(record?.messageSeq);
       const endSeq = Number(record?.endSeq);
       if (!sessionId || !Number.isSafeInteger(seq) || seq < 0) throw new Error(t('jumpFailed'));
-      pendingJump = Number.isFinite(endSeq) ? { key: anchorKey(sessionId, endSeq) } : null;
-      try {
-        if (!services.uiWorkspace?.openSession || !services.sessions?.using) throw new Error(t('jumpFailed'));
-        await services.uiWorkspace.openSession(sessionId);
-        await services.sessions.using(sessionId, { source: 'controllerOperation' }, async ref => {
-          const binding = await ref.ready;
-          await binding.session.loadThrough(Number.isSafeInteger(endSeq) ? Math.max(seq, endSeq) : seq);
-        });
-        if (Number.isFinite(endSeq)) {
-          const node = anchors.get(anchorKey(sessionId, endSeq));
-          if (node) {
-            node.scrollIntoView({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-            node.focus({ preventScroll: true });
-            pendingJump = null;
-          }
-        }
-      } catch (cause) {
-        pendingJump = null;
-        throw cause;
-      }
+      if (!services.uiWorkspace?.openSession || !services.sessions?.using) throw new Error(t('jumpFailed'));
+      await services.uiWorkspace.openSession(sessionId);
+      await services.sessions.using(sessionId, { source: 'controllerOperation' }, async ref => {
+        const binding = await ref.ready;
+        await binding.session.loadThrough(Number.isSafeInteger(endSeq) ? Math.max(seq, endSeq) : seq);
+      });
     }
     function endpointUrl(params) {
       const url = new URL('/api/local-dsh-rollback', window.location.origin);
@@ -365,8 +275,6 @@ window.__ModuleLoader__.load({
       const [total, setTotal] = React.useState(0);
       const [nextOffset, setNextOffset] = React.useState(null);
       const [query, setQuery] = React.useState('');
-      // Opening from a Turn button seeds the filter with that Turn; the dropdown then
-      // owns it, and every change re-queries the Host instead of filtering the page.
       const [turnFilter, setTurnFilter] = React.useState(turn === null || turn === undefined ? 'all' : String(turn));
       const [activeRecordId, setActiveRecordId] = React.useState('');
       const [activeFileId, setActiveFileId] = React.useState('');
@@ -400,6 +308,18 @@ window.__ModuleLoader__.load({
       const previewRef = React.useRef(null);
       const [clock, setClock] = React.useState(Date.now);
       const [actionError, setActionError] = React.useState('');
+      // Summary belongs to the dialog, not to invisible nodes below every turn.
+      const [knownTurns, setKnownTurns] = React.useState([]);
+      React.useEffect(() => {
+        setKnownTurns([]);
+        if (!sessionId) return undefined;
+        const controller = new AbortController();
+        let live = true;
+        readApi({ action: 'turns', sessionId }, controller.signal).then(data => {
+          if (live) setKnownTurns((data.turns ?? []).map(row => Number(row.turn)));
+        }).catch(() => {});
+        return () => { live = false; controller.abort(); };
+      }, [sessionId, refresh]);
       const canMutate = captureStatus?.canMutate !== false;
       const workspaceBusy = captureStatus?.workspaceBusy === true;
       const restoreBlocked = loading || !canMutate || workspaceBusy || captureStatus?.storage?.quotaExceeded === true;
@@ -519,7 +439,7 @@ window.__ModuleLoader__.load({
         setActionError('');
         try {
           const result = await writeApi({ action: 'restore', sessionId, token: preview.token });
-          setPreview(null); setNotice(t(result.noOp ? 'noOpSuccess' : 'restoreSuccess')); setSelectedIds([]); setWholeRecord(false); setRefresh(value => value + 1); refreshTurnCounts(sessionId);
+          setPreview(null); setNotice(t(result.noOp ? 'noOpSuccess' : 'restoreSuccess')); setSelectedIds([]); setWholeRecord(false); setRefresh(value => value + 1);
         } catch (cause) {
           setPreview(null);
           setActionError(`${cause.details?.recordId ? t('partialHelp') + ' ' : ''}${cause.message || t('restoreFailed')}${cause.details?.recordId ? ` · ${t('records')}: ${cause.details.recordId}` : ''}`);
@@ -532,7 +452,7 @@ window.__ModuleLoader__.load({
         setError('');
         try {
           await writeApi({ action: 'delete', sessionId, recordIds: [activeRecordId], confirm: true });
-          setConfirmDelete(false); setNotice(t('deleted')); setActiveRecordId(''); setActiveFileId(''); setSelectedIds([]); setRefresh(value => value + 1); refreshTurnCounts(sessionId);
+          setConfirmDelete(false); setNotice(t('deleted')); setActiveRecordId(''); setActiveFileId(''); setSelectedIds([]); setRefresh(value => value + 1);
         } catch (cause) { setError(cause.message || t('deleteFailed')); }
         finally { endMutation(); }
       }
@@ -552,7 +472,7 @@ window.__ModuleLoader__.load({
         setError('');
         try {
           const result = await writeApi({ action: 'clean', sessionId, confirm: true });
-          setConfirmClean(false); setNotice(`${t('cleaned')}: ${result.deleted ?? 0}`); setRefresh(value => value + 1); refreshTurnCounts(sessionId);
+          setConfirmClean(false); setNotice(`${t('cleaned')}: ${result.deleted ?? 0}`); setRefresh(value => value + 1);
         } catch (cause) { setError(cause.message || t('cleanFailed')); }
         finally { endMutation(); }
       }
@@ -572,7 +492,10 @@ window.__ModuleLoader__.load({
       function toggleFile(id) {
         if (mutationLock.current) return;
         invalidateSelection();
-        setSelectedIds(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+        setSelectedIds(current => {
+          const selected = wholeRecord ? activeFiles.map(file => file.id) : current;
+          return selected.includes(id) ? selected.filter(value => value !== id) : [...selected, id];
+        });
       }
       async function openRecord(record) {
         setError('');
@@ -599,10 +522,6 @@ window.__ModuleLoader__.load({
         if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus(); }
       }
-      // The filter is a server-side query, so the option list comes from the Session's
-      // full turn summary rather than from the currently loaded page.
-      const summary = turnCountCache.get(sessionId);
-      const knownTurns = [...(summary?.counts?.keys() ?? [])].filter(value => Number.isSafeInteger(value) && value >= 0);
       const turns = [...new Set([...knownTurns, ...records.map(record => Number(record.turn))].filter(value => Number.isSafeInteger(value) && value >= 0))].sort((a, b) => b - a);
       const listHeader = h('div', { className: 'dshr-controls' },
         h('input', { className: 'dshr-input', value: query, disabled: mutating, onChange: event => setQuery(event.target.value), placeholder: t('search'), 'aria-label': t('search') }),
@@ -617,7 +536,7 @@ window.__ModuleLoader__.load({
         h('span', { className: 'dshr-muted' }, `${new Date(record.createdAt).toLocaleString()} · ${record.files?.length ?? 0} ${t('files')}`),
         record.status ? h('span', { className: 'dshr-muted' }, ` · ${t(record.status)}`) : null)) : h('div', { className: 'dshr-muted', style: { padding: 14 } }, loading ? t('loading') : t('noRecords'));
       const fileList = activeFiles.length ? activeFiles.map(file => h('div', { className: 'dshr-file', key: file.id, 'aria-current': file.id === activeFileId },
-        h('input', { type: 'checkbox', checked: selectedIds.includes(file.id), disabled: mutating, onChange: () => toggleFile(file.id), 'aria-label': `${t('selected')}: ${file.display ?? file.path}` }),
+        h('input', { type: 'checkbox', checked: wholeRecord || selectedIds.includes(file.id), disabled: mutating, onChange: () => toggleFile(file.id), 'aria-label': `${t('selected')}: ${file.display ?? file.path}` }),
         h('button', { type: 'button', style: { minWidth: 0, border: 0, padding: 0, textAlign: 'left', color: 'inherit', background: 'transparent', cursor: 'pointer' }, onClick: () => setActiveFileId(file.id), title: file.path }, h('span', { className: 'dshr-path' }, file.display ?? file.path)),
         h(ChangeBadge, { change: file.change }))) : h('div', { className: 'dshr-muted', style: { padding: 8 } }, t('noFiles'));
       const fileDetails = detail?.file;
@@ -750,27 +669,6 @@ window.__ModuleLoader__.load({
       const sessionId = mirrorSession(readSessionId(props));
       return h('button', { type: 'button', className: 'dshr-headerbutton', onClick: () => openHistory(sessionId), title: t('title'), 'aria-haspopup': 'dialog' }, t('history'));
     }
-    function LeadingEntry() {
-      useLocale();
-      const rev = React.useSyncExternalStore(subscribe, snapshot, snapshot);
-      void rev;
-      return h('button', { type: 'button', className: 'dshr-leadingbutton', onClick: () => openHistory(currentSessionId()), title: t('title'), 'aria-haspopup': 'dialog', 'aria-label': t('history') },
-        h('span', { className: 'dshr-leadingsign', 'aria-hidden': true }, '↶'),
-        h('span', null, t('history')));
-    }
-    function TurnEntry(props) {
-      useLocale();
-      const sessionId = readSessionId(props);
-      // `seq` is the closing assistant-message seq, which is not the turn/end seq that
-      // records key on; the Turn number is the only anchor both sides agree on.
-      const turn = typeof props?.turn === 'object' ? props.turn?.turn : props?.turn;
-      const endSeq = useTurnEndSeq(sessionId, turn, props?.turn?.end?.seq ?? props?.seq);
-      const anchorRef = React.useCallback(node => registerAnchor(sessionId, endSeq, node), [sessionId, endSeq]);
-      // The anchor stays: "Open related conversation" scrolls and focuses it. Only the
-      // visible "Roll back · N files" button was removed, so a turn adds no footer entry.
-      return h('span', { ref: anchorRef, className: 'dshr-turnanchor', tabIndex: -1, 'aria-label': t('turnHistory') });
-    }
-
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
@@ -781,11 +679,9 @@ window.__ModuleLoader__.load({
         localeSnapshot = () => ctx.locale.getSnapshot();
         const cleanupEn = ctx.locale.register('dshRollback', 'en', EN);
         const cleanupZh = ctx.locale.register('dshRollback', 'zh', ZH);
-        ctx.effect(() => () => { cleanupEn(); cleanupZh(); anchors.clear(); turnCountCache.clear(); turnCountListeners.clear(); latestTurnSeq.clear(); pendingJump = null; services = {}; });
+        ctx.effect(() => () => { cleanupEn(); cleanupZh(); services = {}; });
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'local-dsh-rollback-history', order: 50 }, HistoryOverlay));
-        ctx.slots.inject('conversation.header.leading', () => ctx.slots.register({ name: 'conversation.header.leading' }, LeadingEntry));
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'local-dsh-rollback-header', order: 0 }, HeaderEntry));
-        ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({ name: 'conversation.chat.turnTail', id: 'local-dsh-rollback-turn', order: 30 }, TurnEntry));
         ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: '@guiheng123/dsh-rollback' }, BundleGuide));
       },
     };

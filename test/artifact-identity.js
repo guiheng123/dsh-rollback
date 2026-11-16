@@ -26,10 +26,11 @@ console.log('bundle config key     :', bundleKey, bundleKey === manifest.name ? 
 console.log('registered slots      :', slots.join(', '));
 assert.equal(registered, manifest.name, 'client.js must register exactly the package name');
 assert.equal(bundleKey, manifest.name, 'plugins.bundle.config key must be the package name');
-assert.ok(slots.includes('conversation.header.leading'), 'the entry beside the sidebar must be present');
+assert.ok(!slots.includes('conversation.header.leading'), 'title-left entry must not be registered');
 assert.ok(slots.includes('conversation.session.header.utilities'), 'the Session header entry must be present');
 assert.ok(slots.includes('shell.overlay'), 'the overlay must be present');
-assert.ok(slots.includes('conversation.chat.turnTail'), 'the jump anchor must be present');
+assert.ok(!slots.includes('conversation.chat.turnTail'), 'turn-tail placeholder must not be registered');
+assert.ok(!/dshr-turnanchor|dshr-leadingbutton|dshr-leadingsign|registerAnchor|pendingJump/.test(client), 'no old layout or anchor code remains');
 assert.ok(!/turnbutton/.test(client), 'no visible turn-level rollback button may remain');
 assert.ok(!client.includes("'@local/"), 'no stale @local package identity may remain');
 console.log('Artifact registration identity verified.');
