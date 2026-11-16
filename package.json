@@ -1,6 +1,6 @@
 {
   "name": "@guiheng123/dsh-rollback",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "description": "Per-turn file history, guarded rollback, comparisons and backup retention for DeepSeek Harness.",
   "private": false,
   "license": "MIT",

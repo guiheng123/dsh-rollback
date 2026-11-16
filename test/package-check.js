@@ -6,7 +6,7 @@ assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml');
 assert.equal(manifest.dsh.client.platform, 'web');
 assert.equal(manifest.private, false, 'release package must be publishable');
 assert.equal(manifest.license, 'MIT');
-assert.equal(manifest.version, '1.3.3');
+assert.equal(manifest.version, '1.4.0');
 assert.ok(manifest.engines.dsh.includes('0.2.2-rc.3'), 'declare inspected DSH compatibility');
 assert.equal(manifest.dependencies.zod, '4.6.7', 'release dependency is pinned to the audited version');
 for (const script of ['preinstall', 'install', 'postinstall', 'prepare']) assert.equal(manifest.scripts[script], undefined, 'no installation build scripts');

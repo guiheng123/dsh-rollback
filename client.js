@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
       noSession: 'Open a conversation to view its history.', restoreFailed: 'Restore failed.',
       deleteFailed: 'Could not delete backup.', settingsFailed: 'Could not save settings.', cleanFailed: 'Could not clean backups.',
       status: 'Status', noFiles: 'No file entries in this backup.', pageError: 'The history service could not be reached.',
-      jump: 'Open related conversation', jumpFailed: 'Could not open the related conversation.', rollback: 'Roll back', truncatedDiff: 'Comparison is truncated; open the complete before/after versions.', absent: 'File did not exist in this version.',
+      jump: 'Open related conversation', jumpFailed: 'Could not open the related conversation.', jumpMissing: 'This backup has no valid conversation identity or message sequence.', jumpNotReady: 'Conversation navigation is not ready. Refresh Harness and try again.', jumpTargetMissing: 'History loaded, but the related turn could not be located. The history panel was kept open; refresh and try again.', rollback: 'Roll back', truncatedDiff: 'Comparison is truncated; open the complete before/after versions.', absent: 'File did not exist in this version.',
       currentSession: 'This conversation', workspace: 'Workspace', capturing: 'A turn is being captured.',
       pending: 'Pending captures', refresh: 'Refresh', expired: 'Expired', conflict: 'Conflict',
       storageManagement: 'Storage & quotas', allWorkspaces: 'All workspaces', storageUnavailable: 'Storage statistics unavailable.',
@@ -75,7 +75,7 @@ window.__ModuleLoader__.load({
       noSession: '打开一个会话以查看历史。', restoreFailed: '回滚失败。',
       deleteFailed: '无法删除备份。', settingsFailed: '无法保存设置。', cleanFailed: '无法清理备份。',
       status: '状态', noFiles: '此备份中没有文件记录。', pageError: '无法连接历史服务。',
-      jump: '打开关联对话', jumpFailed: '无法打开关联对话。', rollback: '回滚', truncatedDiff: '差异显示已截断，可切换到之前/之后查看完整版本。', absent: '此版本中文件不存在。',
+      jump: '打开关联对话', jumpFailed: '无法打开关联对话。', jumpMissing: '此备份缺少有效的关联会话或消息序号。', jumpNotReady: '会话导航服务尚未就绪，请刷新 Harness 后重试。', jumpTargetMissing: '历史已加载，但未找到关联轮次。已保留历史面板，请刷新后重试。', rollback: '回滚', truncatedDiff: '差异显示已截断，可切换到之前/之后查看完整版本。', absent: '此版本中文件不存在。',
       currentSession: '当前会话', workspace: '工作区', capturing: '正在捕获当前轮次。',
       pending: '待处理捕获', refresh: '刷新', expired: '已过期', conflict: '冲突',
       storageManagement: '备份空间与配额', allWorkspaces: '全局 · 所有工作区', storageUnavailable: '暂时无法获取空间统计。',
@@ -175,7 +175,7 @@ window.__ModuleLoader__.load({
 
     const shared = { open: false, sessionId: null, turn: null, revision: 0 };
     const listeners = new Set();
-    let services = {};
+    let navigationServices = () => ({});
     let localeSubscribe = listener => () => {};
     let localeSnapshot = () => null;
     const subscribe = listener => { listeners.add(listener); return () => listeners.delete(listener); };
@@ -200,16 +200,55 @@ window.__ModuleLoader__.load({
       updateShared({ open: true, sessionId: target || null, turn: Number.isSafeInteger(parsedTurn) && parsedTurn >= 0 ? parsedTurn : null });
     }
     function closeHistory() { updateShared({ open: false }); }
+    // Use the Host's existing chat rows; never register an empty turn-tail slot.
+    function waitForTurn(turn, loadHistory) {
+      const selector = `[data-chat-turn="${turn}"]:not([hidden]):not([hidden] *)`;
+      const find = () => [...document.querySelectorAll(selector)].find(node => node.getClientRects().length > 0);
+      const existing = find();
+      if (existing) return Promise.resolve(existing);
+      return new Promise((resolve, reject) => {
+        let timer, retry, loading = false, finished = false;
+        const cleanup = () => { finished = true; observer.disconnect(); clearTimeout(timer); clearInterval(retry); };
+        const check = () => {
+          if (finished) return true;
+          const node = find();
+          if (node) { cleanup(); resolve(node); return true; }
+          return false;
+        };
+        const observer = new MutationObserver(check);
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+        // loadThrough may return early while another history page is being consumed.
+        // Retry serially, retaining the Session reference until the target mounts.
+        retry = setInterval(() => {
+          if (check() || loading) return;
+          loading = true;
+          Promise.resolve(loadHistory()).catch(error => {
+            if (!finished) { cleanup(); reject(error); }
+          }).finally(() => { loading = false; });
+        }, 250);
+        timer = setTimeout(() => { cleanup(); reject(new Error(t('jumpTargetMissing'))); }, 15000);
+        check();
+      });
+    }
     async function jumpToRecord(record) {
       const sessionId = record?.sessionId;
       const seq = Number(record?.messageSeq);
-      const endSeq = Number(record?.endSeq);
-      if (!sessionId || !Number.isSafeInteger(seq) || seq < 0) throw new Error(t('jumpFailed'));
-      if (!services.uiWorkspace?.openSession || !services.sessions?.using) throw new Error(t('jumpFailed'));
+      // Load the START of the turn, not its closing assistant message. Long turns
+      // can span many history pages; loading their end does not cover their start.
+      const startSeq = record?.turnStartSeq;
+      const targetSeq = Number.isSafeInteger(startSeq) && startSeq >= 0 ? Math.min(startSeq, seq) : seq;
+      const turn = record?.turn;
+      if (!Number.isSafeInteger(turn) || turn < 0) throw new Error(t('jumpMissing'));
+      if (typeof sessionId !== 'string' || !sessionId.trim() || record?.messageSeq == null || record.messageSeq === '' || !Number.isSafeInteger(seq) || seq < 0) throw new Error(t('jumpMissing'));
+      // Resolve at the time of navigation, not once during plugin startup.
+      const services = navigationServices();
+      if (typeof services.uiWorkspace?.openSession !== 'function' || typeof services.sessions?.using !== 'function') throw new Error(t('jumpNotReady'));
       await services.uiWorkspace.openSession(sessionId);
-      await services.sessions.using(sessionId, { source: 'controllerOperation' }, async ref => {
+      return services.sessions.using(sessionId, { source: 'controllerOperation' }, async ref => {
         const binding = await ref.ready;
-        await binding.session.loadThrough(Number.isSafeInteger(endSeq) ? Math.max(seq, endSeq) : seq);
+        const load = () => binding.session.loadThrough(targetSeq);
+        await load();
+        return waitForTurn(turn, load);
       });
     }
     function endpointUrl(params) {
@@ -498,12 +537,17 @@ window.__ModuleLoader__.load({
         });
       }
       async function openRecord(record) {
+        if (!beginMutation()) return;
         setError('');
-        // The dialog unmounts on close, so a failure must be published to the shared
-        // store to survive the remount; local state would be discarded.
-        updateShared({ open: false, notice: '' });
-        try { await jumpToRecord(record); }
-        catch (cause) { updateShared({ open: true, notice: cause.message || t('jumpFailed') }); }
+        try {
+          const node = await jumpToRecord(record);
+          // Keep history open until a real, visible target is found.
+          closeHistory();
+          window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+            node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          }));
+        } catch (cause) { setError(cause.message || t('jumpFailed')); }
+        finally { endMutation(); }
       }
       function onDialogKeyDown(event) {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss(); return; }
@@ -670,16 +714,16 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: 'dshr-headerbutton', onClick: () => openHistory(sessionId), title: t('title'), 'aria-haspopup': 'dialog' }, t('history'));
     }
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'uiWorkspace', 'sessions'],
       apply(ctx) {
         locale = ctx.locale;
-        services = { uiWorkspace: ctx.get('uiWorkspace'), sessions: ctx.get('sessions') };
+        navigationServices = () => ({ uiWorkspace: ctx.get('uiWorkspace'), sessions: ctx.get('sessions') });
         translate = ctx.locale.bind('dshRollback');
         localeSubscribe = listener => ctx.locale.subscribe(listener);
         localeSnapshot = () => ctx.locale.getSnapshot();
         const cleanupEn = ctx.locale.register('dshRollback', 'en', EN);
         const cleanupZh = ctx.locale.register('dshRollback', 'zh', ZH);
-        ctx.effect(() => () => { cleanupEn(); cleanupZh(); services = {}; });
+        ctx.effect(() => () => { cleanupEn(); cleanupZh(); navigationServices = () => ({}); });
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'local-dsh-rollback-history', order: 50 }, HistoryOverlay));
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'local-dsh-rollback-header', order: 0 }, HeaderEntry));
         ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: '@guiheng123/dsh-rollback' }, BundleGuide));

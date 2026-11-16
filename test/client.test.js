@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 // Exercise the shipped Client component with controlled hooks and deferred Fetches.
 // Fetch deliberately ignores abort so the response-generation check is tested too.
-async function fixture({ status = { ok: true }, activeLocale = null, deferStatus = false } = {}) {
+async function fixture({ status = { ok: true }, activeLocale = null, deferStatus = false, navigationReady = true, navigationError = null, targetVisible = true, delayTargetUntilRetry = false } = {}) {
   const code = await readFile(new URL('../client.js', import.meta.url), 'utf8');
   const slots = new Map(), requests = [], statusRequests = [], openedSessions = [], loadedSequences = [];
   let statusReply = status;
@@ -21,10 +21,15 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
     useEffect(fn, deps) { const i = cursor++; const old = hooks[i]; if (!old || deps.some((dep, index) => !Object.is(dep, old.deps[index]))) { effects.push(() => { old?.cleanup?.(); hooks[i] = { deps, cleanup: fn() }; }); } },
     useLayoutEffect(fn, deps) { React.useEffect(fn, deps); },
   };
+  const scrolls = [], selectors = [];
+  const target = { getClientRects: () => [{}], scrollIntoView: options => scrolls.push(options) };
+  let observed, timeout, retryHistory;
   const context = {
-    window: { location: { origin: 'http://localhost' }, __ModuleLoader__: { load(value) { definition = value; } } },
-    document: { activeElement: null }, URL, AbortController, console,
-    setInterval: () => 1, clearInterval: () => {},
+    window: { requestAnimationFrame: callback => callback(), location: { origin: 'http://localhost' }, __ModuleLoader__: { load(value) { definition = value; } } },
+    document: { activeElement: null, body: {}, querySelectorAll: selector => { selectors.push(selector); return targetVisible ? [target] : []; } },
+    MutationObserver: class { constructor(callback) { observed = callback; } observe() {} disconnect() { observed = null; } },
+    setTimeout: callback => { timeout = callback; return 1; }, clearTimeout: () => { timeout = null; }, URL, AbortController, console,
+    setInterval: callback => { retryHistory = callback; return 1; }, clearInterval: () => { retryHistory = null; },
     fetch(url, options) {
       const action = url.searchParams.get('action');
       if (action === 'turns') return Promise.resolve({ ok: true, json: async () => ({ ok: true, turns: [{ turn: 42, fileCount: 1 }] }) });
@@ -37,8 +42,10 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
     },
   };
   vm.runInNewContext(code, context);
-  definition.factory(() => React).apply({
-    get: name => name === 'uiWorkspace' ? { openSession: async id => { openedSessions.push(id); } } : name === 'sessions' ? { using: async (_id, _options, operation) => operation({ ready: Promise.resolve({ session: { loadThrough: async seq => { loadedSequences.push(seq); } } }) }) } : undefined,
+  const plugin = definition.factory(() => React);
+  assert.ok(plugin.inject.includes('uiWorkspace') && plugin.inject.includes('sessions'), 'navigation services must be declared for lifecycle ordering');
+  plugin.apply({
+    get: name => !navigationReady ? undefined : name === 'uiWorkspace' ? { openSession: async id => { if (navigationError) throw new Error(navigationError); openedSessions.push(id); } } : name === 'sessions' ? { using: async (_id, _options, operation) => operation({ ready: Promise.resolve({ session: { loadThrough: async seq => { loadedSequences.push(seq); if (delayTargetUntilRetry && loadedSequences.length > 1) { targetVisible = true; observed?.(); } } } }) }) } : undefined,
     locale: { bind: () => key => key, subscribe: () => () => {}, getSnapshot: () => activeLocale ? { active: activeLocale } : null, register: () => () => {} },
     effect: fn => fn(),
     slots: { inject: (_key, fn) => fn(), register: (spec, component) => slots.set(spec.name, component) },
@@ -63,7 +70,14 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
   }
   async function settle() { await new Promise(resolve => setImmediate(resolve)); render(); }
   render();
-  return { slots, requests, statusRequests, openedSessions, loadedSequences, setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
+  function remountDialog() {
+    for (const hook of hooks) hook?.cleanup?.();
+    hooks = []; effects = []; cursor = 0;
+    const dialog = slots.get('shell.overlay')().props.children.find(child => typeof child?.type === 'function');
+    Dialog = dialog.type; props = dialog.props;
+    render();
+  }
+  return { slots, requests, statusRequests, openedSessions, loadedSequences, scrolls, selectors, runHistoryRetry: async () => { retryHistory?.(); await new Promise(resolve => setImmediate(resolve)); }, showTarget() { targetVisible = true; observed?.(); }, expireTargetWait() { timeout?.(); }, remountDialog, setNavigationReady(value) { navigationReady = value; }, overlay: () => slots.get('shell.overlay')(), setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
 }
 const response = (id, nextOffset = 100) => ({ ok: true, records: [{ id, turn: 1, files: [], createdAt: 0 }], total: nextOffset === null ? 1 : 201, nextOffset });
 const storageStatus = (storage = {}, settings = {}) => ({
@@ -290,9 +304,99 @@ test('opening related conversation still loads its session without a footer anch
   assert.ok(jump);
   await jump.props.onClick();
   assert.deepEqual(f.openedSessions, ['s1']);
-  assert.deepEqual(f.loadedSequences, [7]);
+  assert.deepEqual(f.loadedSequences, [5]);
+  assert.equal(f.scrolls.length, 1, 'loaded history must also scroll to its turn');
+  assert.ok(f.selectors.some(selector => selector.includes('data-chat-turn="2"')));
   assert.equal(f.isOpen(), false);
   assert.ok(!f.slots.has('conversation.chat.turnTail'));
+  f.unmount();
+});
+
+test('navigation looks up services when clicked and recovers after unavailable startup services', async () => {
+  const f = await fixture({ navigationReady: false });
+  const data = fileResponse();
+  Object.assign(data.records[0], { sessionId: 's1', endSeq: 7 });
+  f.requests[0].resolve(data); await f.settle();
+  const jump = f.find(node => node.props?.title === 'Open related conversation');
+  await jump.props.onClick();
+  assert.equal(f.isOpen(), true);
+  f.render();
+  assert.ok(JSON.stringify(f.tree()).includes('Conversation navigation is not ready'));
+  assert.deepEqual(f.openedSessions, []);
+  f.setNavigationReady(true);
+  await jump.props.onClick();
+  assert.equal(f.isOpen(), false);
+  assert.deepEqual(f.openedSessions, ['s1']);
+  assert.deepEqual(f.loadedSequences, [5]);
+  f.unmount();
+});
+
+test('missing record identity and null message sequence never navigate to an incorrect conversation', async () => {
+  for (const patch of [{ sessionId: undefined }, { messageSeq: null }, { messageSeq: '' }, { messageSeq: -1 }]) {
+    const f = await fixture();
+    const data = fileResponse();
+    Object.assign(data.records[0], { sessionId: 's1' }, patch);
+    f.requests[0].resolve(data); await f.settle();
+    await f.find(node => node.props?.title === 'Open related conversation').props.onClick();
+    assert.equal(f.isOpen(), true);
+    f.render();
+    assert.ok(JSON.stringify(f.tree()).includes('no valid conversation identity or message sequence'));
+    assert.deepEqual(f.openedSessions, []);
+    f.unmount();
+  }
+});
+
+test('navigation failure preserves the actual error and reopens history', async () => {
+  const f = await fixture({ navigationError: 'Session was deleted' });
+  const data = fileResponse();
+  data.records[0].sessionId = 's1';
+  f.requests[0].resolve(data); await f.settle();
+  await f.find(node => node.props?.title === 'Open related conversation').props.onClick();
+  assert.equal(f.isOpen(), true);
+  f.render();
+  assert.ok(JSON.stringify(f.tree()).includes('Session was deleted'));
+  f.unmount();
+});
+
+test('long-history navigation targets turn start and retries early loadThrough returns', async () => {
+  const f = await fixture({ targetVisible: false, delayTargetUntilRetry: true });
+  const data = fileResponse(); Object.assign(data.records[0], { sessionId: 's1', turn: 12, turnStartSeq: 80, messageSeq: 100, endSeq: 110 });
+  f.requests[0].resolve(data); await f.settle();
+  const pending = f.find(node => node.props?.title === 'Open related conversation').props.onClick();
+  await f.settle();
+  assert.equal(f.isOpen(), true);
+  assert.deepEqual(f.loadedSequences, [80]);
+  await f.runHistoryRetry();
+  await pending;
+  assert.deepEqual(f.loadedSequences, [80, 80], 'a second page attempt is issued at turn start after the first early return');
+  assert.equal(f.scrolls.length, 1);
+  f.unmount();
+});
+
+test('history stays open until the target turn mounts, then scrolls without injecting an anchor', async () => {
+  const f = await fixture({ targetVisible: false });
+  const data = fileResponse(); data.records[0].sessionId = 's1';
+  f.requests[0].resolve(data); await f.settle();
+  const pending = f.find(node => node.props?.title === 'Open related conversation').props.onClick();
+  await f.settle();
+  assert.equal(f.isOpen(), true);
+  assert.equal(f.scrolls.length, 0);
+  f.showTarget(); await pending;
+  assert.equal(f.isOpen(), false);
+  assert.equal(f.scrolls.length, 1);
+  assert.ok(!f.slots.has('conversation.chat.turnTail'));
+  f.unmount();
+});
+
+test('missing rendered turn reports a failure instead of silently closing history', async () => {
+  const f = await fixture({ targetVisible: false });
+  const data = fileResponse(); data.records[0].sessionId = 's1';
+  f.requests[0].resolve(data); await f.settle();
+  const pending = f.find(node => node.props?.title === 'Open related conversation').props.onClick();
+  await f.settle(); f.expireTargetWait(); await pending; f.render();
+  assert.equal(f.isOpen(), true);
+  assert.equal(f.scrolls.length, 0);
+  assert.ok(JSON.stringify(f.tree()).includes('related turn could not be located'));
   f.unmount();
 });
 

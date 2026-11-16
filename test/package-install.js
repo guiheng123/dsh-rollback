@@ -1,5 +1,5 @@
 // Isolated tarball installation/import smoke. Never changes a Harness profile.
-// Usage: node test/package-install.js releases/guiheng123-dsh-rollback-1.3.3.tgz
+// Usage: node test/package-install.js releases/guiheng123-dsh-rollback-1.4.0.tgz
 // Requires DSH_SMOKE_PNPM pointing to pnpm.mjs. Child output is inherited, not piped.
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile, readdir } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const tarball = path.resolve(root, process.argv[2] || 'releases/guiheng123-dsh-rollback-1.3.3.tgz');
+const tarball = path.resolve(root, process.argv[2] || 'releases/guiheng123-dsh-rollback-1.4.0.tgz');
 assert.ok(tarball.startsWith(path.join(root, 'releases') + path.sep), 'inspect the intended release artifact');
 const pnpm = process.env.DSH_SMOKE_PNPM;
 assert.ok(pnpm && path.isAbsolute(pnpm), 'DSH_SMOKE_PNPM must name the inspected pnpm.mjs');
@@ -38,7 +38,7 @@ for (const [name, bytes] of files) {
   else assert.deepEqual(bytes, source, `${name} matches reviewed working tree`);
 }
 const manifest = JSON.parse(files.get('package/package.json').toString('utf8'));
-assert.equal(manifest.name, '@guiheng123/dsh-rollback'); assert.equal(manifest.version, '1.3.3');
+assert.equal(manifest.name, '@guiheng123/dsh-rollback'); assert.equal(manifest.version, '1.4.0');
 const out = path.join(root, '.test-output', `package-install-${Date.now()}`);
 await mkdir(out, { recursive: true });
 await writeFile(path.join(out, 'package.json'), JSON.stringify({ name: 'rollback-isolated-install-smoke', private: true, type: 'module' }));
