@@ -1,0 +1,36 @@
+// Verify the packed artifact registers exactly the package name. The Client loader
+// keys factories by this id, so a mismatch fails the entire Client half with
+// "loaded without registering ... via __ModuleLoader__.load".
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { gunzipSync } from 'node:zlib';
+const tarball = process.argv[2] || 'releases/guiheng123-dsh-rollback-1.3.2.tgz';
+const tar = gunzipSync(await readFile(tarball));
+const files = new Map();
+for (let cursor = 0; cursor + 512 <= tar.length;) {
+  const header = tar.subarray(cursor, cursor + 512); cursor += 512;
+  if (header.every(byte => byte === 0)) break;
+  const text = (a, b) => header.subarray(a, b).toString('utf8').replace(/\0.*$/s, '');
+  const size = parseInt(text(124, 136).trim() || '0', 8);
+  const name = `${text(345, 500) ? text(345, 500) + '/' : ''}${text(0, 100)}`;
+  if (text(156, 157) !== '5') files.set(name, tar.subarray(cursor, cursor + size));
+  cursor += Math.ceil(size / 512) * 512;
+}
+const manifest = JSON.parse(files.get('package/package.json').toString('utf8'));
+const client = files.get('package/client.js').toString('utf8');
+const registered = /__ModuleLoader__\.load\(\{[\s\S]{0,400}?id:\s*'([^']+)'/.exec(client)?.[1];
+const bundleKey = /key:\s*'([^']+)'\s*\}\s*,\s*BundleGuide/.exec(client)?.[1];
+const slots = [...client.matchAll(/slots\.register\(\{\s*name:\s*'([^']+)'/g)].map(match => match[1]);
+console.log('package name          :', manifest.name, 'v' + manifest.version);
+console.log('client registration id:', registered, registered === manifest.name ? 'OK' : 'MISMATCH');
+console.log('bundle config key     :', bundleKey, bundleKey === manifest.name ? 'OK' : 'MISMATCH');
+console.log('registered slots      :', slots.join(', '));
+assert.equal(registered, manifest.name, 'client.js must register exactly the package name');
+assert.equal(bundleKey, manifest.name, 'plugins.bundle.config key must be the package name');
+assert.ok(slots.includes('conversation.header.leading'), 'the entry beside the sidebar must be present');
+assert.ok(slots.includes('conversation.session.header.utilities'), 'the Session header entry must be present');
+assert.ok(slots.includes('shell.overlay'), 'the overlay must be present');
+assert.ok(slots.includes('conversation.chat.turnTail'), 'the jump anchor must be present');
+assert.ok(!/turnbutton/.test(client), 'no visible turn-level rollback button may remain');
+assert.ok(!client.includes("'@local/"), 'no stale @local package identity may remain');
+console.log('Artifact registration identity verified.');

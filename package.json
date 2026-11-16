@@ -1,6 +1,6 @@
 {
   "name": "@guiheng123/dsh-rollback",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Per-turn file history, guarded rollback, comparisons and backup retention for DeepSeek Harness.",
   "private": false,
   "license": "MIT",
@@ -13,7 +13,7 @@
   "type": "module",
   "exports": {".": "./index.js", "./client": "./client.js", "./locale/*.json": "./locale/*.json", "./icon": "./icon.svg"},
   "files": ["index.js", "core.js", "storage.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "LICENSE"],
-  "scripts": {"test": "node test/core.test.js && node test/storage.test.js && node test/host.test.js && node test/regressions.test.js && node test/client.test.js && node test/package-check.js", "check": "node --check index.js && node --check core.js && node --check storage.js && node --check client.js", "release:check": "pnpm run check && pnpm test", "pack:release": "pnpm run release:check && pnpm pack --pack-destination releases"},
+  "scripts": {"test": "node test/core.test.js && node test/storage.test.js && node test/host.test.js && node test/regressions.test.js && node test/client.test.js && node test/package-check.js && node test/artifact-identity.js", "check": "node --check index.js && node --check core.js && node --check storage.js && node --check client.js", "release:check": "pnpm run check && pnpm test", "pack:release": "pnpm run release:check && pnpm pack --pack-destination releases"},
   "dependencies": {"zod": "4.6.7"},
   "dsh": {"bundle": {"patch": "./cordis.patch.yml"}, "client": {"platform": "web", "immediately": true, "inject": ["@deepseek-ai/dsh-client-ui-conversation"]}}
 }

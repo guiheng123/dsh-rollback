@@ -6,12 +6,19 @@ assert.equal(manifest.dsh.bundle.patch, './cordis.patch.yml');
 assert.equal(manifest.dsh.client.platform, 'web');
 assert.equal(manifest.private, false, 'release package must be publishable');
 assert.equal(manifest.license, 'MIT');
-assert.equal(manifest.version, '1.3.1');
+assert.equal(manifest.version, '1.3.2');
 assert.ok(manifest.engines.dsh.includes('0.2.2-rc.3'), 'declare inspected DSH compatibility');
 assert.equal(manifest.dependencies.zod, '4.6.7', 'release dependency is pinned to the audited version');
 for (const script of ['preinstall', 'install', 'postinstall', 'prepare']) assert.equal(manifest.scripts[script], undefined, 'no installation build scripts');
 const patch = await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8');
 assert.match(patch, /config: \{\}/, 'the bundle loads with code defaults instead of a config checklist');
+// The Client loader keys factories by the registration id and refuses a bundle whose
+// id differs from the boot-graph entry, failing the WHOLE Client half silently
+// ("loaded without registering ... via __ModuleLoader__.load"). Keep them identical.
+const client = await readFile(new URL('../client.js', import.meta.url), 'utf8');
+const registered = /__ModuleLoader__\.load\(\{[\s\S]{0,400}?id:\s*'([^']+)'/.exec(client)?.[1];
+assert.equal(registered, manifest.name, 'client.js must register exactly the package name');
+assert.ok(client.includes(`key: '${manifest.name}'`), 'the plugins.bundle.config key must be the package name');
 for (const path of ['index.js','core.js','storage.js','client.js','cordis.patch.yml','locale/en.json','locale/zh.json','icon.svg','README.md','LICENSE']) {
   assert.ok(manifest.files.some(entry => entry === path || (entry.includes('*') && entry.split('*')[0] && path.startsWith(entry.split('*')[0]))), `${path} must be distributed`);
   const url = new URL(`../${path}`, import.meta.url);

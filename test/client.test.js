@@ -73,7 +73,7 @@ async function fixture({ status = { ok: true }, activeLocale = null, deferStatus
     finally { while (effects.length) effects.shift()(); hooks = saved.hooks; effects = saved.effects; }
     return { entry, flush() { cursor = 0; while (effects.length) effects.shift()(); } };
   }
-  return { requests, statusRequests, setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, renderTurn, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
+  return { slots, requests, statusRequests, setStatus(value) { statusReply = value; }, isOpen: () => slots.get('shell.overlay')().props.children.some(child => typeof child?.type === 'function'), render, settle, find, tree: () => tree, renderTurn, loadMore: () => find(node => node.props?.onClick?.name === 'loadMore').props.onClick(), unmount() { for (const hook of hooks) hook?.cleanup?.(); } };
 }
 const response = (id, nextOffset = 100) => ({ ok: true, records: [{ id, turn: 1, files: [], createdAt: 0 }], total: nextOffset === null ? 1 : 201, nextOffset });
 const storageStatus = (storage = {}, settings = {}) => ({
@@ -278,6 +278,38 @@ test('late status responses never overwrite quota edits in progress', async () =
 
 const sampleFile = (id, change = 'modified') => ({ id, path: `${id}.txt`, display: `${id}.txt`, change, before: { exists: change !== 'added', available: true }, after: { exists: change !== 'deleted', available: true } });
 const fileResponse = (files = [sampleFile('f1')]) => ({ ok: true, records: [{ id: 'r1', turn: 2, messageSeq: 5, createdAt: 0, files }], total: 1, nextOffset: null });
+test('the leading top-bar seat offers a resident entry that opens the current Session', async () => {
+  const f = await fixture();
+  assert.ok(f.slots.has('conversation.header.leading'), 'the entry beside the sidebar must be registered');
+  // The leading seat receives no owner props at all.
+  const entry = f.slots.get('conversation.header.leading')();
+  assert.equal(entry.type, 'button');
+  assert.equal(entry.props.className, 'dshr-leadingbutton');
+  assert.ok(!JSON.stringify(entry).includes('Roll back'), 'no turn-level rollback button reappears');
+  f.requests[0].resolve(response('first', null)); await f.settle();
+  f.unmount();
+});
+
+test('exactly one visible entry per surface: header leading, session utilities, overlay, no footer button', async () => {
+  const f = await fixture();
+  const surface = (slot, props) => { const rendered = f.slots.get(slot)(props); return JSON.stringify(rendered).split('"dshr-leadingbutton"').length - 1; };
+  // Leading seat renders one button; Session utilities render one button.
+  const leading = f.slots.get('conversation.header.leading')();
+  assert.equal(leading.type, 'button');
+  const utilities = f.slots.get('conversation.session.header.utilities')({ sessionId: 's1' });
+  assert.equal(utilities.type, 'button');
+  assert.equal(utilities.props.className, 'dshr-headerbutton');
+  // A turn renders only the invisible anchor: no leftover footer control.
+  const turn = f.slots.get('conversation.chat.turnTail')({ sessionId: 's1', turn: 2, seq: 5 });
+  assert.equal(turn.type, 'span');
+  assert.equal(turn.props.className, 'dshr-turnanchor');
+  assert.deepEqual(turn.props.children, [], 'the anchor renders no child control');
+  assert.equal(turn.props.tabIndex, -1);
+  void surface;
+  f.requests[0].resolve(response('first', null)); await f.settle();
+  f.unmount();
+});
+
 const action = (f, name) => f.find(node => node.props?.onClick?.name === name);
 const selectFirst = f => { f.find(node => node.type === 'input' && node.props.type === 'checkbox').props.onChange(); f.render(); };
 

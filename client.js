@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/dsh-rollback',
+  id: '@guiheng123/dsh-rollback',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -169,6 +169,11 @@ window.__ModuleLoader__.load({
       .dshr-error{color:var(--dsw-alias-state-error-primary);padding:10px 24px;font-size:13px;overflow-wrap:anywhere}.dshr-notice{padding:8px 24px;color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere}
       .dshr-empty{margin:auto;max-width:470px;padding:30px 20px;text-align:center}.dshr-empty h3{font-size:18px;line-height:26px;margin:12px 0 8px}.dshr-empty p{color:var(--dsw-alias-label-secondary);margin:8px 0;font-size:13px}.dshr-emptymark{display:inline-grid;place-items:center;width:52px;height:52px;border-radius:14px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:27px}
       .dshr-headerbutton{font:inherit;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:7px;padding:5px 10px;cursor:pointer}.dshr-turnanchor{display:inline-block;min-height:1px;min-width:1px;outline:none}.dshr-headerbutton:hover{background:var(--dsw-alias-bg-layer-2)}
+      .dshr-leadingbutton{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-primary);background:transparent;border:1px solid transparent;border-radius:7px;padding:5px 9px;cursor:pointer}
+      .dshr-leadingbutton:hover{background:var(--dsw-alias-bg-layer-1);border-color:var(--dsw-alias-border-l1)}
+      .dshr-leadingbutton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+      .dshr-leadingsign{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:12px;line-height:1}
+      @media(max-width:760px){.dshr-leadingbutton span+span{display:none}}
       @media(max-width:760px){.dshr-backdrop{padding:8px}.dshr-dialog{max-height:calc(100dvh - 16px);height:100%;border-radius:12px}.dshr-header{padding:14px 16px;gap:8px}.dshr-header h2{font-size:17px}.dshr-intro{padding:0 16px 12px}.dshr-body{display:flex;flex-direction:column;overflow:auto}.dshr-listpane{border-right:0;border-bottom:1px solid var(--dsw-alias-border-l1);max-height:38%;flex-shrink:0}.dshr-records{max-height:160px;min-height:50px}.dshr-detailpane{overflow:visible;padding:16px;flex:1 0 auto}.dshr-controls{padding:8px 12px}.dshr-controls input{flex:1 0 40%;width:40%}.dshr-controls select{width:25%}.dshr-paneheading{padding:10px 14px 0}.dshr-detailhead{flex-direction:column;align-items:stretch;gap:8px}.dshr-detailhead .dshr-actions{margin:0}.dshr-session{display:none}.dshr-footer{padding:10px 16px;max-height:32%}.dshr-file{padding:8px}.dshr-empty{padding:18px 12px}.dshr-empty h3{font-size:16px}.dshr-notice,.dshr-error{padding:8px 16px}}
       @media(prefers-reduced-motion:reduce){.dshr-button{transition:none}.dshr-backdrop{backdrop-filter:none}}
     `;
@@ -259,9 +264,16 @@ window.__ModuleLoader__.load({
       }
     }
     function readSessionId(props) { return props?.sessionId ?? null; }
+    let currentSession = null;
+    function mirrorSession(sessionId) {
+      if (typeof sessionId === 'string' && sessionId && sessionId !== currentSession) currentSession = sessionId;
+      return sessionId;
+    }
+    function currentSessionId() { return currentSession; }
     function openHistory(sessionId, turn = null) {
       const parsedTurn = turn === null || turn === undefined || turn === '' ? null : Number(turn);
-      updateShared({ open: true, sessionId: sessionId || null, turn: Number.isSafeInteger(parsedTurn) && parsedTurn >= 0 ? parsedTurn : null });
+      const target = mirrorSession(sessionId) ?? currentSession;
+      updateShared({ open: true, sessionId: target || null, turn: Number.isSafeInteger(parsedTurn) && parsedTurn >= 0 ? parsedTurn : null });
     }
     function closeHistory() { updateShared({ open: false }); }
     async function jumpToRecord(record) {
@@ -735,8 +747,16 @@ window.__ModuleLoader__.load({
     }
     function HeaderEntry(props) {
       useLocale();
-      const sessionId = readSessionId(props);
+      const sessionId = mirrorSession(readSessionId(props));
       return h('button', { type: 'button', className: 'dshr-headerbutton', onClick: () => openHistory(sessionId), title: t('title'), 'aria-haspopup': 'dialog' }, t('history'));
+    }
+    function LeadingEntry() {
+      useLocale();
+      const rev = React.useSyncExternalStore(subscribe, snapshot, snapshot);
+      void rev;
+      return h('button', { type: 'button', className: 'dshr-leadingbutton', onClick: () => openHistory(currentSessionId()), title: t('title'), 'aria-haspopup': 'dialog', 'aria-label': t('history') },
+        h('span', { className: 'dshr-leadingsign', 'aria-hidden': true }, '↶'),
+        h('span', null, t('history')));
     }
     function TurnEntry(props) {
       useLocale();
@@ -763,9 +783,10 @@ window.__ModuleLoader__.load({
         const cleanupZh = ctx.locale.register('dshRollback', 'zh', ZH);
         ctx.effect(() => () => { cleanupEn(); cleanupZh(); anchors.clear(); turnCountCache.clear(); turnCountListeners.clear(); latestTurnSeq.clear(); pendingJump = null; services = {}; });
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'local-dsh-rollback-history', order: 50 }, HistoryOverlay));
+        ctx.slots.inject('conversation.header.leading', () => ctx.slots.register({ name: 'conversation.header.leading' }, LeadingEntry));
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({ name: 'conversation.session.header.utilities', id: 'local-dsh-rollback-header', order: 0 }, HeaderEntry));
         ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({ name: 'conversation.chat.turnTail', id: 'local-dsh-rollback-turn', order: 30 }, TurnEntry));
-        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: '@local/dsh-rollback' }, BundleGuide));
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: '@guiheng123/dsh-rollback' }, BundleGuide));
       },
     };
   },
